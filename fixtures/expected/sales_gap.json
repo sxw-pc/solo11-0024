@@ -1,0 +1,391 @@
+{
+  "task_id": "kj-35cd48628bfd",
+  "generated_at": null,
+  "base_profile": "profile_sales_a",
+  "summary": {
+    "profile_count": 2,
+    "comparison_count": 1,
+    "matched_groups": 4,
+    "within_tolerance_groups": 2,
+    "over_tolerance_groups": 2,
+    "only_base_groups": 1,
+    "only_compare_groups": 1,
+    "attribution_clues": 8,
+    "status": "completed"
+  },
+  "profiles": [
+    {
+      "id": "profile_sales_a",
+      "name": "甲公司已支付订单销售额口径",
+      "source": "orders_a.csv",
+      "grain": "order",
+      "filter": "status == 'paid'",
+      "metric": "sum(amount)",
+      "dimensions": [
+        "region"
+      ],
+      "exclusions": [
+        "channel == 'test'"
+      ],
+      "notes": "仅统计已支付订单，排除测试渠道；分组维度为区域，订单粒度。"
+    },
+    {
+      "id": "profile_sales_b",
+      "name": "乙部门成交订单收入口径",
+      "source": "orders_b.csv",
+      "grain": "order",
+      "filter": "state in ['paid', 'settled']",
+      "metric": "sum(amount)",
+      "dimensions": [
+        "region"
+      ],
+      "exclusions": [
+        "channel == 'internal'"
+      ],
+      "notes": "包含已支付与已结算订单，排除内部渠道；分组维度为区域，订单粒度。"
+    }
+  ],
+  "calculations": [
+    {
+      "profile_id": "profile_sales_a",
+      "profile_name": "甲公司已支付订单销售额口径",
+      "grain": "order",
+      "dimensions": [
+        "region"
+      ],
+      "stats": {
+        "rows_read": 10,
+        "rows_filtered": 8,
+        "rows_excluded": 1,
+        "rows_aggregated": 6,
+        "groups": 5,
+        "unparsable_rows": 1
+      },
+      "groups": [
+        {
+          "key": [
+            "华东"
+          ],
+          "label": "region=华东",
+          "value": 2500
+        },
+        {
+          "key": [
+            "华中"
+          ],
+          "label": "region=华中",
+          "value": 400
+        },
+        {
+          "key": [
+            "华北"
+          ],
+          "label": "region=华北",
+          "value": 800
+        },
+        {
+          "key": [
+            "华南"
+          ],
+          "label": "region=华南",
+          "value": 600
+        },
+        {
+          "key": [
+            "西北"
+          ],
+          "label": "region=西北",
+          "value": 450
+        }
+      ]
+    },
+    {
+      "profile_id": "profile_sales_b",
+      "profile_name": "乙部门成交订单收入口径",
+      "grain": "order",
+      "dimensions": [
+        "region"
+      ],
+      "stats": {
+        "rows_read": 8,
+        "rows_filtered": 7,
+        "rows_excluded": 1,
+        "rows_aggregated": 6,
+        "groups": 5,
+        "unparsable_rows": 0
+      },
+      "groups": [
+        {
+          "key": [
+            "华东"
+          ],
+          "label": "region=华东",
+          "value": 2700
+        },
+        {
+          "key": [
+            "华中"
+          ],
+          "label": "region=华中",
+          "value": 600
+        },
+        {
+          "key": [
+            "华北"
+          ],
+          "label": "region=华北",
+          "value": 900
+        },
+        {
+          "key": [
+            "华南"
+          ],
+          "label": "region=华南",
+          "value": 650
+        },
+        {
+          "key": [
+            "西南"
+          ],
+          "label": "region=西南",
+          "value": 520
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "base_profile": "profile_sales_a",
+      "compare_profile": "profile_sales_b",
+      "dimensions": [
+        "region"
+      ],
+      "tolerance": {
+        "absolute": 0.0,
+        "relative": 0.1
+      },
+      "summary": {
+        "matched_groups": 4,
+        "within_tolerance_groups": 2,
+        "over_tolerance_groups": 2,
+        "only_base_groups": 1,
+        "only_compare_groups": 1
+      },
+      "matched": [
+        {
+          "key": [
+            "华东"
+          ],
+          "label": "region=华东",
+          "base_value": 2500,
+          "compare_value": 2700,
+          "diff": 200,
+          "diff_rate": 0.08,
+          "base_zero": false,
+          "within_tolerance": true,
+          "status": "within_tolerance"
+        },
+        {
+          "key": [
+            "华中"
+          ],
+          "label": "region=华中",
+          "base_value": 400,
+          "compare_value": 600,
+          "diff": 200,
+          "diff_rate": 0.5,
+          "base_zero": false,
+          "within_tolerance": false,
+          "status": "over_tolerance"
+        },
+        {
+          "key": [
+            "华北"
+          ],
+          "label": "region=华北",
+          "base_value": 800,
+          "compare_value": 900,
+          "diff": 100,
+          "diff_rate": 0.125,
+          "base_zero": false,
+          "within_tolerance": false,
+          "status": "over_tolerance"
+        },
+        {
+          "key": [
+            "华南"
+          ],
+          "label": "region=华南",
+          "base_value": 600,
+          "compare_value": 650,
+          "diff": 50,
+          "diff_rate": 0.083333,
+          "base_zero": false,
+          "within_tolerance": true,
+          "status": "within_tolerance"
+        }
+      ],
+      "only_base": [
+        {
+          "key": [
+            "西北"
+          ],
+          "label": "region=西北",
+          "value": 450
+        }
+      ],
+      "only_compare": [
+        {
+          "key": [
+            "西南"
+          ],
+          "label": "region=西南",
+          "value": 520
+        }
+      ]
+    }
+  ],
+  "attributions": [
+    {
+      "base_profile": "profile_sales_a",
+      "compare_profile": "profile_sales_b",
+      "group_key": [
+        "华中"
+      ],
+      "group_label": "region=华中",
+      "clues": [
+        {
+          "clause": "filter",
+          "base": "status == 'paid'",
+          "compare": "state in ['paid', 'settled']",
+          "explanation": "过滤条件不同，进入聚合的订单/事件集合可能不同。",
+          "affected_groups": [
+            "region=华中",
+            "region=华北",
+            "region=西北",
+            "region=西南"
+          ]
+        },
+        {
+          "clause": "exclusions",
+          "base": "[\"channel == 'test'\"]",
+          "compare": "[\"channel == 'internal'\"]",
+          "explanation": "排除规则不同，被剔除的行可能不同。",
+          "affected_groups": [
+            "region=华中",
+            "region=华北",
+            "region=西北",
+            "region=西南"
+          ]
+        }
+      ]
+    },
+    {
+      "base_profile": "profile_sales_a",
+      "compare_profile": "profile_sales_b",
+      "group_key": [
+        "华北"
+      ],
+      "group_label": "region=华北",
+      "clues": [
+        {
+          "clause": "filter",
+          "base": "status == 'paid'",
+          "compare": "state in ['paid', 'settled']",
+          "explanation": "过滤条件不同，进入聚合的订单/事件集合可能不同。",
+          "affected_groups": [
+            "region=华中",
+            "region=华北",
+            "region=西北",
+            "region=西南"
+          ]
+        },
+        {
+          "clause": "exclusions",
+          "base": "[\"channel == 'test'\"]",
+          "compare": "[\"channel == 'internal'\"]",
+          "explanation": "排除规则不同，被剔除的行可能不同。",
+          "affected_groups": [
+            "region=华中",
+            "region=华北",
+            "region=西北",
+            "region=西南"
+          ]
+        }
+      ]
+    },
+    {
+      "base_profile": "profile_sales_a",
+      "compare_profile": "profile_sales_b",
+      "group_key": [
+        "西北"
+      ],
+      "group_label": "region=西北",
+      "clues": [
+        {
+          "clause": "filter",
+          "base": "status == 'paid'",
+          "compare": "state in ['paid', 'settled']",
+          "explanation": "过滤条件不同，进入聚合的订单/事件集合可能不同。",
+          "affected_groups": [
+            "region=华中",
+            "region=华北",
+            "region=西北",
+            "region=西南"
+          ]
+        },
+        {
+          "clause": "exclusions",
+          "base": "[\"channel == 'test'\"]",
+          "compare": "[\"channel == 'internal'\"]",
+          "explanation": "排除规则不同，被剔除的行可能不同。",
+          "affected_groups": [
+            "region=华中",
+            "region=华北",
+            "region=西北",
+            "region=西南"
+          ]
+        }
+      ]
+    },
+    {
+      "base_profile": "profile_sales_a",
+      "compare_profile": "profile_sales_b",
+      "group_key": [
+        "西南"
+      ],
+      "group_label": "region=西南",
+      "clues": [
+        {
+          "clause": "filter",
+          "base": "status == 'paid'",
+          "compare": "state in ['paid', 'settled']",
+          "explanation": "过滤条件不同，进入聚合的订单/事件集合可能不同。",
+          "affected_groups": [
+            "region=华中",
+            "region=华北",
+            "region=西北",
+            "region=西南"
+          ]
+        },
+        {
+          "clause": "exclusions",
+          "base": "[\"channel == 'test'\"]",
+          "compare": "[\"channel == 'internal'\"]",
+          "explanation": "排除规则不同，被剔除的行可能不同。",
+          "affected_groups": [
+            "region=华中",
+            "region=华北",
+            "region=西北",
+            "region=西南"
+          ]
+        }
+      ]
+    }
+  ],
+  "suggestions": [
+    "统一 filter 条款：统一过滤条件的业务边界，并在口径文档中写明生效字段与取值。",
+    "统一 exclusions 条款：对齐排除规则，逐条确认测试、内部、退款等特殊行的处理方式。",
+    "核对维度取值覆盖范围，补齐仅在单侧出现的分组，或说明其缺失原因。"
+  ]
+}

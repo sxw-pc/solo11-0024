@@ -1,0 +1,9 @@
+order_id,region,channel,state,amount,quantity,order_date
+B-001,华东,web,paid,1000,1,2025-01-02
+B-002,华东,web,paid,1700,1,2025-01-03
+B-003,华北,store,settled,900,2,2025-01-04
+B-004,华南,web,paid,650,1,2025-01-06
+B-005,西南,web,settled,520,1,2025-01-07
+B-006,华中,web,paid,600,1,2025-01-10
+B-007,华东,internal,paid,2000,1,2025-01-11
+B-008,华北,web,pending,1100,1,2025-01-12

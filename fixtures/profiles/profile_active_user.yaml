@@ -1,0 +1,10 @@
+id: profile_active_user
+name: 丙部门活跃用户数口径
+source: events.csv
+grain: user
+filter: "event_type == 'login' and is_active == 1"
+metric: "count()"
+dimensions:
+  - region
+exclusions: []
+notes: "登录事件且标记为活跃；用户粒度，按区域统计活跃用户数。"

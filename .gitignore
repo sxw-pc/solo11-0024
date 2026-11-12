@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.benchmarks/
+.venv/
+venv/
+.coverage
+htmlcov/
+koujing.db
+*.db-journal
+*.db-wal
+*.db-shm
+report/

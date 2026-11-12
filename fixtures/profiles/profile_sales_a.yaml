@@ -1,0 +1,11 @@
+id: profile_sales_a
+name: 甲公司已支付订单销售额口径
+source: orders_a.csv
+grain: order
+filter: "status == 'paid'"
+metric: "sum(amount)"
+dimensions:
+  - region
+exclusions:
+  - "channel == 'test'"
+notes: "仅统计已支付订单，排除测试渠道；分组维度为区域，订单粒度。"

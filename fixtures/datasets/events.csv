@@ -1,0 +1,7 @@
+user_id,region,event_type,is_active,event_date
+U-001,华东,login,1,2025-02-01
+U-002,华东,login,1,2025-02-01
+U-003,华北,login,1,2025-02-02
+U-004,华北,login,0,2025-02-02
+U-005,华东,view,1,2025-02-03
+U-006,华南,login,1,2025-02-03

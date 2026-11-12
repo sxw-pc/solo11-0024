@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koujing-calibration"
+version = "0.1.0"
+description = "Local, deterministic multi-definition metric calibration workbench"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=6.0,<7.0",
+    "Flask>=3.0,<4.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0,<9.0"]
+
+[project.scripts]
+koujing = "koujing.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["koujing*"]
+
+[tool.setuptools.package-data]
+koujing = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

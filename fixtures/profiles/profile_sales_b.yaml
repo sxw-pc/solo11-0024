@@ -1,0 +1,11 @@
+id: profile_sales_b
+name: 乙部门成交订单收入口径
+source: orders_b.csv
+grain: order
+filter: "state in ['paid', 'settled']"
+metric: "sum(amount)"
+dimensions:
+  - region
+exclusions:
+  - "channel == 'internal'"
+notes: "包含已支付与已结算订单，排除内部渠道；分组维度为区域，订单粒度。"

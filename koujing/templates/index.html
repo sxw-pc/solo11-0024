@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>口径校准台</title>
+  <style>
+    :root { color-scheme: light; --ink: #17202a; --muted: #5b6672; --line: #d8dee5; --paper: #f6f4ef; --accent: #8a3f2b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: Georgia, "Noto Serif SC", serif; line-height: 1.65; }
+    main { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+    header { border-bottom: 3px double var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+    h1 { font-size: clamp(2rem, 5vw, 3.4rem); margin: 0 0 .5rem; letter-spacing: .02em; }
+    h2 { margin-top: 2.2rem; font-size: 1.3rem; border-left: 5px solid var(--accent); padding-left: .7rem; }
+    p { max-width: 72ch; }
+    code { background: #ebe6dc; padding: .1rem .35rem; border-radius: 3px; font-family: Consolas, monospace; font-size: .93em; }
+    pre { background: #1f252b; color: #f3eee5; padding: 1rem 1.2rem; overflow-x: auto; border-radius: 6px; }
+    .tag { display: inline-block; border: 1px solid var(--accent); color: var(--accent); padding: .1rem .55rem; border-radius: 99px; font-size: .8rem; margin-right: .35rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+    .card { background: #fffdf8; border: 1px solid var(--line); padding: 1rem 1.1rem; border-radius: 6px; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    ul { padding-left: 1.2rem; }
+    footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; color: var(--muted); font-size: .85rem; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="tag">纯本地</span><span class="tag">确定性</span><span class="tag">口径治理</span>
+    <h1>口径校准台</h1>
+    <p>读取本地 YAML 口径声明与 CSV 数据样例，执行单口径计算、交叉比对、条款级差异归因，并把任务与结论写入本地 SQLite 台账。</p>
+  </header>
+
+  <section class="grid">
+    <div class="card"><strong>当前口径</strong><p>{{ profile_count }} 个本地声明</p><p class="muted">{{ profile_ids | join(", ") }}</p></div>
+    <div class="card"><strong>输出</strong><p>Markdown 报告、JSON 报告、SQLite 台账</p></div>
+    <div class="card"><strong>边界</strong><p>不接数据库、不抓远程数据、不做图表看板</p></div>
+  </section>
+
+  <h2>本地接口</h2>
+  <ul>
+    <li><code>GET /</code>：本说明页</li>
+    <li><code>GET /tasks</code>：最近任务 JSON</li>
+    <li><code>GET /tasks/&lt;task_id&gt;</code>：任务详情 JSON</li>
+    <li><code>POST /run</code>：以本地口径 id 触发一次校准</li>
+  </ul>
+  <pre>POST /run
+Content-Type: application/json
+
+{"profiles": ["profile_sales_a", "profile_sales_b"],
+ "tolerance_abs": 0,
+ "tolerance_rel": 0.1}</pre>
+
+  <h2>命令行</h2>
+  <pre>python -m koujing.cli run --profiles profile_sales_a --profiles profile_sales_b --out report/
+python -m koujing.cli list
+python -m koujing.cli show &lt;task_id&gt;</pre>
+
+  <h2>运行原则</h2>
+  <ul>
+    <li>只读取仓库内 fixture 中的口径与数据，不接受上传或任意路径。</li>
+    <li>报告默认不写入时间戳，相同输入得到相同结果。</li>
+    <li>差异归因提供候选证据，不声称因果结论。</li>
+    <li>服务默认仅监听 <code>127.0.0.1:5000</code>，页面资源全部内联。</li>
+  </ul>
+
+  <footer>口径校准台 · 本地优先 · 样例均为合成数据</footer>
+</main>
+</body>
+</html>
