@@ -47,6 +47,25 @@ def test_repeated_run_is_byte_identical(tmp_path: Path) -> None:
     assert first_bytes == second_bytes
 
 
+def test_dataset_line_endings_do_not_change_task_id(tmp_path: Path) -> None:
+    plain = _run(tmp_path, report_dir=None, write_reports_enabled=False)
+    dataset_dir = tmp_path / "crlf-datasets"
+    dataset_dir.mkdir()
+    for name in ("orders_a.csv", "orders_b.csv", "events.csv"):
+        text = (DEFAULT_DATASET_DIR / name).read_text(encoding="utf-8")
+        (dataset_dir / name).write_text(
+            text.replace("\n", "\r\n"), encoding="utf-8", newline=""
+        )
+    normalized = _run(
+        tmp_path,
+        dataset_dir=dataset_dir,
+        db_path=tmp_path / "crlf.db",
+        report_dir=None,
+        write_reports_enabled=False,
+    )
+    assert normalized.task.task_id == plain.task.task_id
+
+
 def test_timestamp_does_not_change_task_id(tmp_path: Path) -> None:
     plain = _run(tmp_path, db_path=tmp_path / "a.db", report_dir=tmp_path / "a")
     stamped = _run(

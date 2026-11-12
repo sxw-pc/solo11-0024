@@ -307,6 +307,7 @@ Markdown 片段：
 ├── requirements.txt
 ├── pyproject.toml
 ├── .gitignore
+├── .gitattributes
 ├── koujing/
 │   ├── __init__.py
 │   ├── server.py            # Flask 应用与路由

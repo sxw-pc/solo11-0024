@@ -41,8 +41,10 @@ class CalibrationRun:
 
 def _digest(path: Path) -> str:
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError as exc:
+        text = path.read_text(encoding="utf-8-sig")
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    except (OSError, UnicodeError) as exc:
         raise RunnerError(f"无法读取数据集 {path.name}: {exc}", "dataset_read_error") from exc
 
 

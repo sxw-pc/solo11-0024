@@ -17,7 +17,7 @@
 - SQLite 五表台账、事务写入、幂等 task_id、最近任务查询与按 task_id 重建报告。
 - Flask 本地服务：`/`、`/tasks`、`/tasks/<id>`、`/run`。
 - CLI：`run`、`list`、`show`。
-- 91 个离线测试与合成 fixture 回归样例。
+- 92 个离线测试与合成 fixture 回归样例。
 
 ### Boundaries
 
