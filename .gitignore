@@ -12,3 +12,7 @@ koujing.db
 *.db-wal
 *.db-shm
 report/
+node_modules/
+*.pyc
+.env
+dist/
