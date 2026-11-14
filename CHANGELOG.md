@@ -17,7 +17,8 @@
 - SQLite 五表台账、事务写入、幂等 task_id、最近任务查询与按 task_id 重建报告。
 - Flask 本地服务：`/`、`/tasks`、`/tasks/<id>`、`/run`。
 - CLI：`run`、`list`、`show`。
-- 92 个离线测试与合成 fixture 回归样例。
+- 可选 `decimal_mode` 指标聚合模式：口径声明可开启，`calculate_profile(..., decimal_mode=...)` 也可按调用覆盖；`sum` / `avg` 与指标内算术按十进制求值，结果仍归一为 `int` / `float`。
+- 110 个离线测试与合成 fixture 回归样例。
 
 ### Boundaries
 

@@ -24,6 +24,7 @@ REQUIRED_FIELDS = (
     "exclusions",
     "notes",
 )
+OPTIONAL_FIELDS = ("decimal_mode",)
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
@@ -125,7 +126,7 @@ def load_profile_file(path: Path, dataset_dir: Path) -> Profile:
         raise _fail(path, "", f"无法读取文件: {exc}") from exc
     if not isinstance(raw, dict):
         raise _fail(path, "yaml", "顶层必须是映射")
-    unknown = sorted(set(raw) - set(REQUIRED_FIELDS))
+    unknown = sorted(set(raw) - set(REQUIRED_FIELDS) - set(OPTIONAL_FIELDS))
     if unknown:
         raise _fail(path, unknown[0], "未知字段")
     for key in REQUIRED_FIELDS:
@@ -145,6 +146,9 @@ def load_profile_file(path: Path, dataset_dir: Path) -> Profile:
     dimensions = _string_list(raw["dimensions"], path, "dimensions", allow_empty=False)
     exclusions = _string_list(raw["exclusions"], path, "exclusions", allow_empty=True)
     notes = _require_text(raw, "notes", path)
+    decimal_mode = raw.get("decimal_mode", False)
+    if not isinstance(decimal_mode, bool):
+        raise _fail(path, "decimal_mode", "必须是布尔值")
     columns = _dataset_columns(dataset_dir, source, path)
 
     missing_dimensions = [item for item in dimensions if item not in columns]
@@ -173,6 +177,7 @@ def load_profile_file(path: Path, dataset_dir: Path) -> Profile:
         dimensions=dimensions,
         exclusions=exclusions,
         notes=notes,
+        decimal_mode=decimal_mode,
     )
 
 

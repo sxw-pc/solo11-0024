@@ -60,6 +60,12 @@ def build_task_id(
         "datasets": {source: _digest(dataset_dir / source) for source in sources},
         "tolerance": {"absolute": tolerance_abs, "relative": tolerance_rel},
     }
+    # Decimal aggregation changes results, so a profile opting in must not share
+    # a task id with the same declaration evaluated in float mode.  Leaving the
+    # key out while nobody opts in preserves existing task ids.
+    decimal_profiles = [profile.id for profile in profiles if profile.decimal_mode]
+    if decimal_profiles:
+        seed["decimal_mode"] = decimal_profiles
     encoded = json.dumps(seed, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return TASK_ID_PREFIX + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
 

@@ -91,6 +91,18 @@ def test_tolerance_changes_task_id(tmp_path: Path) -> None:
     assert first.task.task_id != second.task.task_id
 
 
+def test_decimal_mode_changes_task_id(tmp_path: Path, sales_profiles) -> None:
+    from dataclasses import replace
+
+    from koujing.runner import build_task_id
+
+    profiles = [replace(profile, decimal_mode=True) for profile in sales_profiles]
+    decimal_id = build_task_id(profiles, DEFAULT_DATASET_DIR, 0.0, 0.1)
+    float_id = build_task_id(list(sales_profiles), DEFAULT_DATASET_DIR, 0.0, 0.1)
+    assert decimal_id != float_id
+    assert float_id == "kj-35cd48628bfd"
+
+
 def test_expected_sales_gap_fixture(tmp_path: Path, project_root: Path) -> None:
     outcome = _run(tmp_path)
     actual = json.loads(render_json(outcome.task))

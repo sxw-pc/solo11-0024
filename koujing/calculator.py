@@ -35,9 +35,22 @@ def _source_path(dataset_dir: Path, source: str) -> Path:
     return path
 
 
-def calculate_profile(profile: Profile, dataset_dir: Path | str) -> CalculationResult:
+def calculate_profile(
+    profile: Profile,
+    dataset_dir: Path | str,
+    *,
+    decimal_mode: bool | None = None,
+) -> CalculationResult:
+    """Calculate one profile.
+
+    ``decimal_mode`` selects decimal aggregation for metrics.  ``None`` means
+    "use the profile's own declaration"; an explicit boolean overrides it for
+    this call only.  Filter and exclusion expressions keep the historical
+    float semantics either way.
+    """
     dataset_dir = Path(dataset_dir)
     path = _source_path(dataset_dir, profile.source)
+    decimal_metric = profile.decimal_mode if decimal_mode is None else decimal_mode
     try:
         filter_node = parse_expression(profile.filter)
         exclusion_nodes = [parse_expression(text) for text in profile.exclusions]
@@ -102,7 +115,12 @@ def calculate_profile(profile: Profile, dataset_dir: Path | str) -> CalculationR
     for key in sorted(grouped, key=lambda item: tuple(str(part) for part in item)):
         group_rows = grouped[key]
         try:
-            value = evaluate(metric_node, row=None, rows=group_rows)
+            value = evaluate(
+                metric_node,
+                row=None,
+                rows=group_rows,
+                decimal_mode=decimal_metric,
+            )
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ExpressionError("type_mismatch", "指标结果必须是数值")
             value = normalize_number(value)

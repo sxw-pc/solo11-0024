@@ -4,13 +4,39 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Iterable, Mapping, Union
 
 Number = Union[int, float]
 
 
-def normalize_number(value: Number) -> Number:
-    """Round computed values to a stable, JSON-friendly representation."""
+def _normalize_decimal(value: Decimal) -> Number:
+    """Convert an internal Decimal to the public int/float contract.
+
+    Decimals keep full precision while accumulating, but the public boundary is
+    float.  Integral results stay exact ``int`` values as long as float can
+    represent their magnitude; everything else goes through the same float
+    normalization as the float path so both paths agree on the 6-decimal
+    rounding and never hand back a different type for the same group.
+    """
+    if not value.is_finite():
+        raise ValueError("a finite decimal value is required")
+    floating = float(value)
+    if not math.isfinite(floating):
+        raise ValueError("NaN and infinity are not supported")
+    if value == value.to_integral_value():
+        return int(value)
+    return normalize_number(floating)
+
+
+def normalize_number(value: Number | Decimal) -> Number:
+    """Round computed values to a stable, JSON-friendly representation.
+
+    ``Decimal`` values are accepted only as an internal aggregation carrier;
+    the return value is always ``int`` or ``float`` so reports stay JSON-safe.
+    """
+    if isinstance(value, Decimal):
+        return _normalize_decimal(value)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("a numeric value is required")
     if isinstance(value, float):
@@ -39,8 +65,11 @@ class Profile:
     dimensions: tuple[str, ...]
     exclusions: tuple[str, ...]
     notes: str = ""
+    decimal_mode: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        # ``decimal_mode`` is an execution preference, not a declaration
+        # clause, so it stays out of the serialized profile and task seed.
         return {
             "id": self.id,
             "name": self.name,

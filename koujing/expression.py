@@ -36,6 +36,7 @@ class Token:
     kind: str
     value: Any
     position: int
+    raw: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class Node:
     value: Any = None
     children: tuple["Node", ...] = ()
     position: int | None = None
+    raw: str | None = None
 
 
 def _error(code: str, message: str, position: int | None = None) -> ExpressionError:
@@ -74,7 +76,7 @@ def tokenize(text: str) -> list[Token]:
                 value = float(raw) if has_dot else int(raw)
             except ValueError as exc:
                 raise _error("invalid_number", f"无法解析数字 {raw}", position) from exc
-            tokens.append(Token("NUMBER", value, position))
+            tokens.append(Token("NUMBER", value, position, raw))
         elif char.isalpha() or char == "_":
             while index < size and (text[index].isalnum() or text[index] == "_"):
                 index += 1
@@ -187,7 +189,7 @@ class _Parser:
         token = self.current
         if token.kind == "NUMBER":
             self.index += 1
-            return Node("number", token.value, (), token.position)
+            return Node("number", token.value, (), token.position, token.raw)
         if token.kind == "STRING":
             self.index += 1
             return Node("string", token.value, (), token.position)
@@ -286,13 +288,23 @@ def validate_expression(
     return node
 
 
-def evaluate(node: Node, row: Any = None, rows: Any = None) -> Any:
+def evaluate(
+    node: Node,
+    row: Any = None,
+    rows: Any = None,
+    decimal_mode: bool = False,
+) -> Any:
     from .expr_eval import evaluate as implementation
 
-    return implementation(node, row, rows)
+    return implementation(node, row, rows, decimal_mode)
 
 
-def evaluate_expression(text: str, row: Any = None, rows: Any = None) -> Any:
+def evaluate_expression(
+    text: str,
+    row: Any = None,
+    rows: Any = None,
+    decimal_mode: bool = False,
+) -> Any:
     from .expr_eval import evaluate_expression as implementation
 
-    return implementation(text, row, rows)
+    return implementation(text, row, rows, decimal_mode)
