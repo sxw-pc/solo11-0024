@@ -2,11 +2,85 @@
 
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Union
 
 Number = Union[int, float]
+
+# Explicit schema version of the serialized task payload archived in the
+# ledger. v1 is the original shape (no optional signal keys); v2 declares the
+# optional signals below. The writer stamps PAYLOAD_SCHEMA_VERSION on every
+# save; the read path migrates older payloads in memory only.
+PAYLOAD_SCHEMA_VERSION = 2
+MIN_READABLE_PAYLOAD_VERSION = 1
+
+# Optional signals introduced after schema v1, with the declared defaults used
+# to backfill archived payloads at read time. Absence means "no signals were
+# recorded", so every default is the empty container. Values must be
+# JSON-native and are deep-copied before being inserted anywhere.
+TASK_SUMMARY_DEFAULTS: dict[str, Any] = {"refined_signals": {}}
+COMPARISON_SUMMARY_DEFAULTS: dict[str, Any] = {"refined_signals": {}}
+MATCHED_GROUP_DEFAULTS: dict[str, Any] = {"signals": []}
+
+# Required structure the read path (reporter / ledger queries) dereferences.
+# Missing or mistyped required keys make a payload unmigratable: refusing is
+# safer than guessing values for archived history.
+_REQUIRED_PAYLOAD_KEYS: dict[str, tuple[type, ...]] = {
+    "task_id": (str,),
+    "generated_at": (str, type(None)),
+    "base_profile": (str,),
+    "summary": (dict,),
+    "profiles": (list,),
+    "calculations": (list,),
+    "comparisons": (list,),
+    "attributions": (list,),
+    "suggestions": (list,),
+}
+_TASK_SUMMARY_COUNT_KEYS = (
+    "profile_count",
+    "comparison_count",
+    "matched_groups",
+    "within_tolerance_groups",
+    "over_tolerance_groups",
+    "only_base_groups",
+    "only_compare_groups",
+)
+_COMPARISON_REQUIRED_KEYS: dict[str, tuple[type, ...]] = {
+    "base_profile": (str,),
+    "compare_profile": (str,),
+    "summary": (dict,),
+    "matched": (list,),
+    "only_base": (list,),
+    "only_compare": (list,),
+}
+_COMPARISON_SUMMARY_COUNT_KEYS = (
+    "matched_groups",
+    "within_tolerance_groups",
+    "over_tolerance_groups",
+    "only_base_groups",
+    "only_compare_groups",
+)
+_MATCHED_REQUIRED_KEYS = (
+    "label",
+    "base_value",
+    "compare_value",
+    "diff",
+    "diff_rate",
+    "within_tolerance",
+    "base_zero",
+)
+_SIDE_REQUIRED_KEYS = ("label", "value")
+
+
+class PayloadSchemaError(ValueError):
+    """Structured rejection for an archived payload that cannot be migrated."""
+
+    def __init__(self, message: str, code: str = "payload_migration_error"):
+        self.message = message
+        self.code = code
+        super().__init__(message)
 
 
 def normalize_number(value: Number) -> Number:
@@ -283,3 +357,103 @@ def payload_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Read the summary from an already-serialized task payload."""
     summary = payload.get("summary", {})
     return dict(summary) if isinstance(summary, Mapping) else {}
+
+
+def _require_shape(
+    mapping: Mapping[str, Any], spec: Mapping[str, tuple[type, ...]], context: str
+) -> None:
+    for key, types in spec.items():
+        if key not in mapping:
+            raise PayloadSchemaError(f"{context} 缺少必需字段: {key}")
+        value = mapping[key]
+        if isinstance(value, bool) or not isinstance(value, types):
+            raise PayloadSchemaError(f"{context} 字段 {key} 类型无效，无法安全迁移")
+
+
+def _require_counts(summary: Mapping[str, Any], keys: Iterable[str], context: str) -> None:
+    for key in keys:
+        if key not in summary:
+            raise PayloadSchemaError(f"{context} 缺少必需字段: {key}")
+        value = summary[key]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise PayloadSchemaError(f"{context} 字段 {key} 必须是整数，无法安全迁移")
+
+
+def _validate_payload_structure(payload: Mapping[str, Any]) -> None:
+    _require_shape(payload, _REQUIRED_PAYLOAD_KEYS, "payload")
+    _require_counts(payload["summary"], _TASK_SUMMARY_COUNT_KEYS, "payload.summary")
+    for index, comparison in enumerate(payload["comparisons"]):
+        context = f"payload.comparisons[{index}]"
+        if not isinstance(comparison, Mapping):
+            raise PayloadSchemaError(f"{context} 必须是对象，无法安全迁移")
+        _require_shape(comparison, _COMPARISON_REQUIRED_KEYS, context)
+        _require_counts(
+            comparison["summary"], _COMPARISON_SUMMARY_COUNT_KEYS, f"{context}.summary"
+        )
+        for item in comparison["matched"]:
+            if not isinstance(item, Mapping):
+                raise PayloadSchemaError(f"{context}.matched 条目必须是对象，无法安全迁移")
+            for key in _MATCHED_REQUIRED_KEYS:
+                if key not in item:
+                    raise PayloadSchemaError(f"{context}.matched 条目缺少必需字段: {key}")
+        for side in ("only_base", "only_compare"):
+            for item in comparison[side]:
+                if not isinstance(item, Mapping):
+                    raise PayloadSchemaError(
+                        f"{context}.{side} 条目必须是对象，无法安全迁移"
+                    )
+                for key in _SIDE_REQUIRED_KEYS:
+                    if key not in item:
+                        raise PayloadSchemaError(
+                            f"{context}.{side} 条目缺少必需字段: {key}"
+                        )
+
+
+def _backfill(mapping: dict[str, Any], defaults: Mapping[str, Any], context: str) -> None:
+    for key, default in defaults.items():
+        if key not in mapping:
+            mapping[key] = copy.deepcopy(default)
+            continue
+        value = mapping[key]
+        if isinstance(value, bool) or not isinstance(value, type(default)):
+            raise PayloadSchemaError(
+                f"{context} 字段 {key} 与声明的信号类型冲突，无法安全迁移"
+            )
+
+
+def migrate_payload(payload: Any, version: Any) -> dict[str, Any]:
+    """Return a current-schema copy of an archived task payload.
+
+    Older payloads are lifted to the current schema by backfilling the
+    declared optional-signal defaults; the input is never mutated and nothing
+    is written back to the ledger. Payloads whose structure cannot be
+    migrated safely are rejected with PayloadSchemaError instead of being
+    guessed at.
+    """
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise PayloadSchemaError(
+            f"payload 版本无效: {version!r}", "unsupported_payload_version"
+        )
+    if version > PAYLOAD_SCHEMA_VERSION:
+        raise PayloadSchemaError(
+            f"payload 版本 {version} 高于当前支持的 {PAYLOAD_SCHEMA_VERSION}，请升级后再读取",
+            "unsupported_payload_version",
+        )
+    if version < MIN_READABLE_PAYLOAD_VERSION:
+        raise PayloadSchemaError(
+            f"payload 版本 {version} 过旧，无法安全迁移",
+            "unsupported_payload_version",
+        )
+    if not isinstance(payload, Mapping):
+        raise PayloadSchemaError("payload 必须是 JSON 对象，无法安全迁移")
+    _validate_payload_structure(payload)
+    migrated: dict[str, Any] = copy.deepcopy(dict(payload))
+    if version == PAYLOAD_SCHEMA_VERSION:
+        return migrated
+    _backfill(migrated["summary"], TASK_SUMMARY_DEFAULTS, "payload.summary")
+    for index, comparison in enumerate(migrated["comparisons"]):
+        context = f"payload.comparisons[{index}]"
+        _backfill(comparison["summary"], COMPARISON_SUMMARY_DEFAULTS, f"{context}.summary")
+        for item in comparison["matched"]:
+            _backfill(item, MATCHED_GROUP_DEFAULTS, f"{context}.matched 条目")
+    return migrated

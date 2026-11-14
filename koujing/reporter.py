@@ -7,7 +7,12 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from .models import TaskResult
+from .models import (
+    COMPARISON_SUMMARY_DEFAULTS,
+    MATCHED_GROUP_DEFAULTS,
+    TASK_SUMMARY_DEFAULTS,
+    TaskResult,
+)
 
 
 def _payload(task: TaskResult | Mapping[str, Any]) -> dict[str, Any]:
@@ -28,6 +33,18 @@ def _rate(value: Any) -> str:
     if value is None:
         return "分母为0，不计算"
     return f"{float(value):.4%}"
+
+
+def _render_signals(signals: Mapping[str, Any]) -> str:
+    return "；".join(f"{key}={_cell(value)}" for key, value in sorted(signals.items()))
+
+
+def _refined_signals(
+    summary: Mapping[str, Any], defaults: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    """Read optional refined group signals, tolerating payloads that predate them."""
+    signals = summary.get("refined_signals", defaults["refined_signals"])
+    return signals if isinstance(signals, Mapping) else {}
 
 
 def _profile_table(profiles: list[dict[str, Any]]) -> list[str]:
@@ -90,6 +107,20 @@ def _comparison_table(payload: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _refined_signal_lines(payload: dict[str, Any]) -> list[str]:
+    """Render optional per-comparison refined signals when a payload carries them."""
+    lines: list[str] = []
+    for item in payload["comparisons"]:
+        signals = _refined_signals(item["summary"], COMPARISON_SUMMARY_DEFAULTS)
+        if signals:
+            lines.append(
+                f"- {item['base_profile']} → {item['compare_profile']}：{_render_signals(signals)}"
+            )
+    if lines:
+        return ["", "细化组信号：", *lines]
+    return []
+
+
 def _detail_table(payload: dict[str, Any]) -> list[str]:
     lines = [
         "| 类型 | 基准口径 | 比对口径 | 分组键 | 基准值 | 比对值 | 差异 | 差异率 | 标记 |",
@@ -103,6 +134,9 @@ def _detail_table(payload: dict[str, Any]) -> list[str]:
                 continue
             found = True
             marker = "分母为0" if item["base_zero"] else "超差"
+            signals = item.get("signals", MATCHED_GROUP_DEFAULTS["signals"]) or []
+            if signals:
+                marker = "；".join([marker, *(str(signal) for signal in signals)])
             values = (
                 "超差",
                 base_id,
@@ -163,30 +197,38 @@ def render_markdown(task: TaskResult | Mapping[str, Any]) -> str:
         f"- 比对次数：{summary['comparison_count']}",
         f"- 匹配组：{summary['matched_groups']}；超差组：{summary['over_tolerance_groups']}；"
         f"仅基准组：{summary['only_base_groups']}；仅比对组：{summary['only_compare_groups']}",
-        "",
-        "## 2. 参与口径清单",
-        "",
-        *_profile_table(payload["profiles"]),
-        "",
-        "## 3. 各口径计算统计",
-        "",
-        *_stats_table(payload),
-        "",
-        "## 4. 比对结果",
-        "",
-        *_comparison_table(payload),
-        "",
-        "## 5. 超差与缺失分组明细",
-        "",
-        *_detail_table(payload),
-        "",
-        "## 6. 差异归因线索",
-        "",
-        *_attribution_lines(payload),
-        "",
-        "## 7. 校准建议",
-        "",
     ]
+    task_signals = _refined_signals(summary, TASK_SUMMARY_DEFAULTS)
+    if task_signals:
+        lines.append(f"- 细化组信号：{_render_signals(task_signals)}")
+    lines.extend(
+        [
+            "",
+            "## 2. 参与口径清单",
+            "",
+            *_profile_table(payload["profiles"]),
+            "",
+            "## 3. 各口径计算统计",
+            "",
+            *_stats_table(payload),
+            "",
+            "## 4. 比对结果",
+            "",
+            *_comparison_table(payload),
+            *_refined_signal_lines(payload),
+            "",
+            "## 5. 超差与缺失分组明细",
+            "",
+            *_detail_table(payload),
+            "",
+            "## 6. 差异归因线索",
+            "",
+            *_attribution_lines(payload),
+            "",
+            "## 7. 校准建议",
+            "",
+        ]
+    )
     lines.extend(f"- {item}" for item in payload["suggestions"])
     lines.append("")
     return "\n".join(lines)

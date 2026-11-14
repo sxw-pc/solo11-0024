@@ -7,6 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .models import PAYLOAD_SCHEMA_VERSION, PayloadSchemaError, migrate_payload
 from .store_schema import SCHEMA
 
 
@@ -43,10 +44,22 @@ class Store:
         try:
             with connection:
                 connection.executescript(SCHEMA)
+                self._migrate(connection)
         except sqlite3.Error as exc:
             raise StoreError(f"无法初始化数据库: {exc}", "database_init_error") from exc
         finally:
             connection.close()
+
+    @staticmethod
+    def _migrate(connection: sqlite3.Connection) -> None:
+        """Bring ledger databases created by older versions up to date."""
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(tasks)")
+        }
+        if "payload_version" not in columns:
+            connection.execute(
+                "ALTER TABLE tasks ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1"
+            )
 
     def save_task(self, task: TaskResult) -> dict[str, Any]:
         payload = task.to_dict()
@@ -79,8 +92,8 @@ class Store:
     ) -> None:
         connection.execute(
             "INSERT INTO tasks (task_id, generated_at, base_profile, profile_count, "
-            "tolerance_abs, tolerance_rel, summary_json, payload_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "tolerance_abs, tolerance_rel, summary_json, payload_json, payload_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 payload["task_id"],
                 payload["generated_at"],
@@ -90,6 +103,7 @@ class Store:
                 tolerance_rel,
                 _json(payload["summary"]),
                 _json(payload),
+                PAYLOAD_SCHEMA_VERSION,
             ),
         )
 
@@ -213,7 +227,8 @@ class Store:
         connection = self._connect()
         try:
             row = connection.execute(
-                "SELECT payload_json FROM tasks WHERE task_id = ?", (task_id,)
+                "SELECT payload_json, payload_version FROM tasks WHERE task_id = ?",
+                (task_id,),
             ).fetchone()
         except sqlite3.Error as exc:
             raise StoreError(f"查询任务失败: {exc}", "query_error") from exc
@@ -222,9 +237,15 @@ class Store:
         if row is None:
             return None
         try:
-            return json.loads(row["payload_json"])
+            payload = json.loads(row["payload_json"])
         except (TypeError, json.JSONDecodeError) as exc:
             raise StoreError(f"任务数据损坏: {exc}", "corrupt_task") from exc
+        try:
+            # Migrate on the in-memory copy only; the archived row is never
+            # rewritten, so replaying old tasks stays side-effect free.
+            return migrate_payload(payload, row["payload_version"])
+        except PayloadSchemaError as exc:
+            raise StoreError(exc.message, exc.code) from exc
 
     def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:

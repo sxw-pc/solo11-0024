@@ -9,7 +9,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     tolerance_abs REAL NOT NULL,
     tolerance_rel REAL NOT NULL,
     summary_json TEXT NOT NULL,
-    payload_json TEXT NOT NULL
+    payload_json TEXT NOT NULL,
+    -- Schema version of payload_json. DEFAULT 1 marks rows archived before
+    -- explicit versioning; Store._initialize adds this column to legacy
+    -- databases via ALTER TABLE, which likewise stamps existing rows as 1.
+    payload_version INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS profiles_loaded (
     task_id TEXT NOT NULL,

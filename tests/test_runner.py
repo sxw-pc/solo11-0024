@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ from koujing.config import DEFAULT_DATASET_DIR, DEFAULT_PROFILE_DIR
 from koujing.loader import ProfileError
 from koujing.reporter import render_json
 from koujing.runner import RunnerError, regenerate_reports, run_calibration
-from koujing.store import Store
+from koujing.store import Store, StoreError
 
 
 def _run(tmp_path: Path, **changes):
@@ -105,6 +106,54 @@ def test_regenerate_reports_from_task_id(tmp_path: Path) -> None:
     paths = regenerate_reports(outcome.task.task_id, tmp_path / "runner.db", out)
     assert len(paths) == 2
     assert paths[0].read_text(encoding="utf-8") == render_json(outcome.task)
+
+
+def _restamp_payload_version(db_path: Path, task_id: str, version: int) -> None:
+    connection = sqlite3.connect(str(db_path))
+    try:
+        connection.execute(
+            "UPDATE tasks SET payload_version = ? WHERE task_id = ?", (version, task_id)
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_regenerate_reports_from_legacy_payload(tmp_path: Path) -> None:
+    outcome = _run(tmp_path)
+    db_path = tmp_path / "runner.db"
+    # Simulate an archived v1 row: same payload shape, legacy version stamp.
+    _restamp_payload_version(db_path, outcome.task.task_id, 1)
+    paths = regenerate_reports(outcome.task.task_id, db_path, tmp_path / "legacy-out")
+    assert len(paths) == 2
+    regenerated = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert regenerated["summary"]["refined_signals"] == {}
+    comparison = regenerated["comparisons"][0]
+    assert comparison["summary"]["refined_signals"] == {}
+    assert all(item["signals"] == [] for item in comparison["matched"])
+    assert paths[1].read_text(encoding="utf-8").startswith("# 口径校准报告")
+    # The read path must not rewrite the archived row.
+    store = Store(db_path)
+    assert store.get_task(outcome.task.task_id) is not None
+    connection = sqlite3.connect(str(db_path))
+    try:
+        row = connection.execute(
+            "SELECT payload_version, payload_json FROM tasks WHERE task_id = ?",
+            (outcome.task.task_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row[0] == 1
+    assert "refined_signals" not in row[1]
+
+
+def test_regenerate_reports_rejects_unmigratable_payload(tmp_path: Path) -> None:
+    outcome = _run(tmp_path)
+    db_path = tmp_path / "runner.db"
+    _restamp_payload_version(db_path, outcome.task.task_id, 99)
+    with pytest.raises(StoreError) as caught:
+        regenerate_reports(outcome.task.task_id, db_path, tmp_path / "out")
+    assert caught.value.code == "unsupported_payload_version"
 
 
 def test_unknown_profile_and_too_few(tmp_path: Path) -> None:
