@@ -13,7 +13,14 @@ from typing import Any
 
 from .expression import ExpressionError, parse_expression
 from .expr_eval import evaluate
-from .models import CalcStats, CalculationResult, GroupValue, Profile, normalize_number
+from .models import (
+    CalcStats,
+    CalculationResult,
+    GroupValue,
+    Profile,
+    group_sort_key,
+    normalize_number,
+)
 
 
 class CalculationError(Exception):
@@ -99,7 +106,7 @@ def calculate_profile(profile: Profile, dataset_dir: Path | str) -> CalculationR
 
     groups: list[GroupValue] = []
     rows_aggregated = 0
-    for key in sorted(grouped, key=lambda item: tuple(str(part) for part in item)):
+    for key in sorted(grouped, key=group_sort_key):
         group_rows = grouped[key]
         try:
             value = evaluate(metric_node, row=None, rows=group_rows)

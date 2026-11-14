@@ -10,6 +10,7 @@ from .models import (
     ComparisonResult,
     MatchedGroup,
     SideGroup,
+    group_sort_key,
     normalize_number,
 )
 
@@ -30,10 +31,6 @@ def _tolerance(name: str, value: Any) -> float:
     if not math.isfinite(float(value)) or value < 0:
         raise ComparisonError(f"{name} 必须是非负有限数", "invalid_tolerance")
     return float(value)
-
-
-def _sort_key(key: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(str(part) for part in key)
 
 
 def compare_calculations(
@@ -59,9 +56,9 @@ def compare_calculations(
     rel_tolerance = _tolerance("tolerance_rel", tolerance_rel)
     base_map = base.group_map()
     other_map = other.group_map()
-    common = sorted(set(base_map) & set(other_map), key=_sort_key)
-    only_base = sorted(set(base_map) - set(other_map), key=_sort_key)
-    only_other = sorted(set(other_map) - set(base_map), key=_sort_key)
+    common = sorted(set(base_map) & set(other_map), key=group_sort_key)
+    only_base = sorted(set(base_map) - set(other_map), key=group_sort_key)
+    only_other = sorted(set(other_map) - set(base_map), key=group_sort_key)
 
     matched: list[MatchedGroup] = []
     for key in common:

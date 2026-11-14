@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from koujing.attributor import attribute_comparison
 from koujing.comparator import ComparisonError, compare_calculations
+from koujing.models import group_sort_key
 
 
 def test_all_groups_match(calc_factory) -> None:
@@ -116,3 +118,115 @@ def test_summary_and_serialized_status(calc_factory) -> None:
     payload = result.to_dict()
     assert payload["matched"][0]["status"] == "over_tolerance"
     assert payload["only_base"][0]["label"] == "region=西北"
+
+
+MIXED_BASE = {
+    ("10",): 100,
+    ("2",): 20,
+    ("01",): 10,
+    ("1",): 30,
+    ("Alpha",): 100,
+    ("alpha",): 100,
+    ("BETA",): 100,
+    ("beta",): 100,
+    ("0",): 100,
+    ("OnlyBaseB",): 5,
+    ("OnlyBaseA",): 5,
+}
+MIXED_OTHER = {
+    ("10",): 100,
+    ("01",): 10,
+    ("1",): 60,
+    ("Alpha",): 200,
+    ("alpha",): 100,
+    ("BETA",): 100,
+    ("beta",): 150,
+    ("0",): 0,
+    ("OnlyCompareB",): 5,
+    ("OnlyCompareA",): 5,
+    ("100",): 7,
+}
+
+
+def test_group_sort_key_is_numeric_aware_and_stable() -> None:
+    assert sorted(MIXED_BASE, key=group_sort_key) == [
+        ("Alpha",),
+        ("BETA",),
+        ("OnlyBaseA",),
+        ("OnlyBaseB",),
+        # Uppercase sorts before lowercase for the non-numeric parts.
+        ("alpha",),
+        ("beta",),
+        # Numbers compare by value, not lexicographically: 0 < 01 == 1 < 2 < 10.
+        ("0",),
+        ("01",),
+        ("1",),
+        ("2",),
+        ("10",),
+    ]
+
+
+def test_mixed_type_keys_are_sorted_consistently(calc_factory) -> None:
+    result = compare_calculations(
+        calc_factory("a", MIXED_BASE),
+        calc_factory("b", MIXED_OTHER),
+        tolerance_abs=0,
+        tolerance_rel=0.1,
+    )
+    assert [item.key for item in result.matched] == [
+        ("Alpha",),
+        ("BETA",),
+        ("alpha",),
+        ("beta",),
+        ("0",),
+        ("01",),
+        ("1",),
+        ("10",),
+    ]
+    assert [item.key for item in result.only_base] == [
+        ("OnlyBaseA",),
+        ("OnlyBaseB",),
+        ("2",),
+    ]
+    assert [item.key for item in result.only_compare] == [
+        ("OnlyCompareA",),
+        ("OnlyCompareB",),
+        ("100",),
+    ]
+
+
+def test_attribution_groups_use_the_same_canonical_order(
+    calc_factory, profile_factory
+) -> None:
+    base = profile_factory("profile_base")
+    other = profile_factory("profile_other", filter="status == 'settled'")
+    result = compare_calculations(
+        calc_factory(base.id, MIXED_BASE),
+        calc_factory(other.id, MIXED_OTHER),
+        tolerance_abs=0,
+        tolerance_rel=0.1,
+    )
+    expected = sorted(
+        [
+            item.key
+            for item in result.matched
+            if not item.within_tolerance
+        ]
+        + [item.key for item in result.only_base]
+        + [item.key for item in result.only_compare],
+        key=group_sort_key,
+    )
+    attributions = attribute_comparison(base, other, result)
+    assert [item.group_key for item in attributions] == expected
+    assert [item.group_key for item in attributions] == [
+        ("Alpha",),
+        ("OnlyBaseA",),
+        ("OnlyBaseB",),
+        ("OnlyCompareA",),
+        ("OnlyCompareB",),
+        ("beta",),
+        ("0",),
+        ("1",),
+        ("2",),
+        ("100",),
+    ]

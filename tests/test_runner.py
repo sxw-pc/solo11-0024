@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from koujing import cli
 from koujing.config import DEFAULT_DATASET_DIR, DEFAULT_PROFILE_DIR
 from koujing.loader import ProfileError
 from koujing.reporter import render_json
@@ -22,6 +23,74 @@ def _run(tmp_path: Path, **changes):
     }
     values.update(changes)
     return run_calibration(**values)
+
+
+MIXED_BUCKETS_A = [
+    ("Alpha", 100),
+    ("alpha", 100),
+    ("BETA", 100),
+    ("beta", 100),
+    ("0", 100),
+    ("01", 10),
+    ("1", 30),
+    ("2", 20),
+    ("10", 100),
+    ("OnlyBaseA", 5),
+    ("OnlyBaseB", 5),
+]
+MIXED_BUCKETS_B = [
+    ("Alpha", 200),
+    ("alpha", 100),
+    ("BETA", 100),
+    ("beta", 150),
+    ("0", 0),
+    ("01", 10),
+    ("1", 60),
+    ("10", 100),
+    ("OnlyCompareA", 5),
+    ("OnlyCompareB", 5),
+    ("100", 7),
+]
+
+
+def _write_mixed_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """Build a profile/dataset pair whose keys mix numbers, digits and case."""
+    profile_dir = tmp_path / "mixed-profiles"
+    dataset_dir = tmp_path / "mixed-datasets"
+    profile_dir.mkdir()
+    dataset_dir.mkdir()
+    for name, rows in (("a", MIXED_BUCKETS_A), ("b", MIXED_BUCKETS_B)):
+        lines = ["bucket,status,amount"]
+        lines.extend(f"{bucket},paid,{amount}" for bucket, amount in rows)
+        (dataset_dir / f"mixed_{name}.csv").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
+    templates = {
+        "profile_mixed_a": (
+            "mixed_a.csv",
+            "status == 'paid'",
+        ),
+        "profile_mixed_b": (
+            "mixed_b.csv",
+            "status in ['paid', 'settled']",
+        ),
+    }
+    for profile_id, (source, filter_expression) in templates.items():
+        text = (
+            f"id: {profile_id}\n"
+            f"name: {profile_id}\n"
+            f"source: {source}\n"
+            "grain: order\n"
+            f'filter: "{filter_expression}"\n'
+            'metric: "sum(amount)"\n'
+            "dimensions:\n"
+            "  - bucket\n"
+            "exclusions: []\n"
+            'notes: "mixed-type key fixture"\n'
+        )
+        (profile_dir / f"{profile_id}.yaml").write_text(text, encoding="utf-8")
+    db_path = tmp_path / "mixed.db"
+    return profile_dir, dataset_dir, db_path
 
 
 def test_end_to_end_summary_and_reports(tmp_path: Path) -> None:
@@ -105,6 +174,93 @@ def test_regenerate_reports_from_task_id(tmp_path: Path) -> None:
     paths = regenerate_reports(outcome.task.task_id, tmp_path / "runner.db", out)
     assert len(paths) == 2
     assert paths[0].read_text(encoding="utf-8") == render_json(outcome.task)
+
+
+def _run_mixed(tmp_path: Path):
+    profile_dir, dataset_dir, db_path = _write_mixed_fixture(tmp_path)
+    return run_calibration(
+        ["profile_mixed_a", "profile_mixed_b"],
+        profile_dir,
+        dataset_dir,
+        db_path,
+        report_dir=tmp_path / "mixed-reports",
+    )
+
+
+def test_run_show_replay_keeps_mixed_key_markdown_bytes(
+    tmp_path: Path, capsys
+) -> None:
+    outcome = _run_mixed(tmp_path)
+    json_path, markdown_path = outcome.report_paths
+    first_markdown = markdown_path.read_bytes()
+
+    # The detail table concatenates matched, only_base and only_compare, so a
+    # drifted single-side ordering would change these rows.
+    text = first_markdown.decode("utf-8")
+    only_base_rows = [line for line in text.splitlines() if line.startswith("| 仅基准有 ")]
+    only_compare_rows = [line for line in text.splitlines() if line.startswith("| 仅比对有 ")]
+    assert [line.split(" | ")[3] for line in only_base_rows] == [
+        "bucket=OnlyBaseA",
+        "bucket=OnlyBaseB",
+        "bucket=2",
+    ]
+    assert [line.split(" | ")[3] for line in only_compare_rows] == [
+        "bucket=OnlyCompareA",
+        "bucket=OnlyCompareB",
+        "bucket=100",
+    ]
+
+    exit_code = cli.main(
+        ["show", outcome.task.task_id, "--db", str(tmp_path / "mixed.db"), "--format", "markdown"]
+    )
+    assert exit_code == 0
+    assert capsys.readouterr().out.encode("utf-8") == first_markdown
+
+    regenerated = regenerate_reports(
+        outcome.task.task_id, tmp_path / "mixed.db", tmp_path / "mixed-replay"
+    )
+    assert regenerated[1].read_bytes() == first_markdown
+    assert regenerated[0].read_bytes() == json_path.read_bytes()
+
+
+def test_mixed_key_calculation_order_is_stable(tmp_path: Path) -> None:
+    outcome = _run_mixed(tmp_path)
+    assert list(outcome.task.calculations[0].group_map()) == [
+        ("Alpha",),
+        ("BETA",),
+        ("OnlyBaseA",),
+        ("OnlyBaseB",),
+        ("alpha",),
+        ("beta",),
+        ("0",),
+        ("01",),
+        ("1",),
+        ("2",),
+        ("10",),
+    ]
+    comparison = outcome.task.comparisons[0]
+    assert [item.key for item in comparison.only_base] == [
+        ("OnlyBaseA",),
+        ("OnlyBaseB",),
+        ("2",),
+    ]
+    assert [item.key for item in comparison.only_compare] == [
+        ("OnlyCompareA",),
+        ("OnlyCompareB",),
+        ("100",),
+    ]
+    assert [item.group_key for item in outcome.task.attributions] == [
+        ("Alpha",),
+        ("OnlyBaseA",),
+        ("OnlyBaseB",),
+        ("OnlyCompareA",),
+        ("OnlyCompareB",),
+        ("beta",),
+        ("0",),
+        ("1",),
+        ("2",),
+        ("100",),
+    ]
 
 
 def test_unknown_profile_and_too_few(tmp_path: Path) -> None:

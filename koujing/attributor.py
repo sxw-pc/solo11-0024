@@ -11,6 +11,7 @@ from .models import (
     ComparisonResult,
     Profile,
     group_label,
+    group_sort_key,
 )
 
 CLAUSE_ORDER = ("filter", "metric", "exclusions", "grain")
@@ -50,7 +51,7 @@ def _divergent_groups(comparison: ComparisonResult) -> list[tuple[str, ...]]:
     keys = [item.key for item in comparison.matched if not item.within_tolerance]
     keys.extend(item.key for item in comparison.only_base)
     keys.extend(item.key for item in comparison.only_compare)
-    return sorted(set(keys), key=lambda key: tuple(str(part) for part in key))
+    return sorted(set(keys), key=group_sort_key)
 
 
 def attribute_comparison(

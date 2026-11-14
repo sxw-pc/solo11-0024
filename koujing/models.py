@@ -3,10 +3,40 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Iterable, Mapping, Union
 
 Number = Union[int, float]
+
+# ASCII-only so that the numeric interpretation is identical on every
+# platform and does not silently accept values such as ``nan`` or ``inf``.
+_NUMERIC_TEXT = re.compile(r"^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$")
+
+
+def group_sort_key(key: Iterable[Any]) -> tuple[tuple[int, Any, str], ...]:
+    """Return the canonical sort key for a dimension-key tuple.
+
+    Each part becomes ``(is_numeric, value_or_text, original_text)``:
+
+    * non-numeric parts sort before numeric parts and compare as text;
+    * numeric parts compare by their exact decimal value, so ``"2"`` sorts
+      before ``"10"``;
+    * the original text breaks ties, so ``"01"`` and ``"1"`` keep a stable
+      order instead of collapsing into one another.
+
+    Every pipeline stage (calculation, comparison and attribution) sorts with
+    this key so the same group always appears at the same position.
+    """
+    parts: list[tuple[int, Any, str]] = []
+    for part in key:
+        text = str(part)
+        if _NUMERIC_TEXT.fullmatch(text):
+            parts.append((1, Decimal(text), text))
+        else:
+            parts.append((0, text, text))
+    return tuple(parts)
 
 
 def normalize_number(value: Number) -> Number:
