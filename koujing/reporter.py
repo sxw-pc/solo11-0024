@@ -90,6 +90,45 @@ def _comparison_table(payload: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _alignment_lines(payload: dict[str, Any]) -> list[str]:
+    rows: list[tuple[str, str, dict[str, Any]]] = []
+    for comparison in payload["comparisons"]:
+        alignment = comparison.get("alignment")
+        if isinstance(alignment, Mapping):
+            rows.append(
+                (comparison["base_profile"], comparison["compare_profile"], dict(alignment))
+            )
+    if not rows:
+        return []
+    mode_names = {"exact": "维度一致", "common": "公共维度归并"}
+    lines = [
+        "",
+        "**维度归并信号（联合比对）**",
+        "",
+        "| 基准 | 比对 | 模式 | 公共维度 | 侧 | 独有维度 | 原组数 | 归并塌陷组 | 恢复行 | 未映射组 |",
+        "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
+    ]
+    for base_id, compare_id, alignment in rows:
+        mode = mode_names.get(str(alignment.get("mode")), str(alignment.get("mode")))
+        common = ", ".join(str(item) for item in alignment["common_dimensions"]) or "—"
+        for side, prefix in (("基准", "base"), ("比对", "compare")):
+            extra = ", ".join(str(item) for item in alignment[f"{prefix}_extra_dimensions"]) or "无"
+            values = (
+                base_id,
+                compare_id,
+                mode,
+                common,
+                side,
+                extra,
+                alignment[f"{prefix}_source_groups"],
+                alignment[f"{prefix}_collapsed_groups"],
+                alignment[f"{prefix}_recovered_groups"],
+                alignment[f"{prefix}_unmapped_groups"],
+            )
+            lines.append("| " + " | ".join(_cell(value) for value in values) + " |")
+    return lines
+
+
 def _detail_table(payload: dict[str, Any]) -> list[str]:
     lines = [
         "| 类型 | 基准口径 | 比对口径 | 分组键 | 基准值 | 比对值 | 差异 | 差异率 | 标记 |",
@@ -163,6 +202,14 @@ def render_markdown(task: TaskResult | Mapping[str, Any]) -> str:
         f"- 比对次数：{summary['comparison_count']}",
         f"- 匹配组：{summary['matched_groups']}；超差组：{summary['over_tolerance_groups']}；"
         f"仅基准组：{summary['only_base_groups']}；仅比对组：{summary['only_compare_groups']}",
+        *(
+            [
+                f"- 联合比对：{summary['joint_comparisons']} 次；归并塌陷组：{summary['collapsed_groups']}；"
+                f"恢复行：{summary['recovered_groups']}；未映射组：{summary['unmapped_groups']}"
+            ]
+            if summary.get("joint_comparisons")
+            else []
+        ),
         "",
         "## 2. 参与口径清单",
         "",
@@ -175,6 +222,7 @@ def render_markdown(task: TaskResult | Mapping[str, Any]) -> str:
         "## 4. 比对结果",
         "",
         *_comparison_table(payload),
+        *_alignment_lines(payload),
         "",
         "## 5. 超差与缺失分组明细",
         "",

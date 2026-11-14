@@ -53,13 +53,18 @@ def build_task_id(
     dataset_dir: Path,
     tolerance_abs: float,
     tolerance_rel: float,
+    joint: bool = False,
 ) -> str:
     sources = sorted({profile.source for profile in profiles})
-    seed = {
+    seed: dict[str, Any] = {
         "profiles": [profile.to_dict() for profile in profiles],
         "datasets": {source: _digest(dataset_dir / source) for source in sources},
         "tolerance": {"absolute": tolerance_abs, "relative": tolerance_rel},
     }
+    if joint:
+        # Only version the seed when the mode is on so existing task ids and
+        # stored fixtures for non-joint runs stay stable.
+        seed["joint"] = True
     encoded = json.dumps(seed, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return TASK_ID_PREFIX + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
 
@@ -92,6 +97,7 @@ def run_calibration(
     tolerance_rel: float = DEFAULT_TOLERANCE_REL,
     write_reports_enabled: bool = True,
     generated_at: str | None = None,
+    joint: bool = False,
 ) -> CalibrationRun:
     ids = _validate_ids(profile_ids)
     if generated_at is not None and not isinstance(generated_at, str):
@@ -108,6 +114,7 @@ def run_calibration(
                     calculation,
                     tolerance_abs=tolerance_abs,
                     tolerance_rel=tolerance_rel,
+                    joint=joint,
                 )
             )
         except ComparisonError as exc:
@@ -121,7 +128,9 @@ def run_calibration(
         )
     suggestions = build_suggestions(comparisons, attributions)
     task = TaskResult(
-        task_id=build_task_id(profiles, dataset_dir, float(tolerance_abs), float(tolerance_rel)),
+        task_id=build_task_id(
+            profiles, dataset_dir, float(tolerance_abs), float(tolerance_rel), joint=joint
+        ),
         base_profile=profiles[0].id,
         generated_at=generated_at,
         profiles=tuple(profiles),

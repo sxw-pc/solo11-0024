@@ -132,6 +132,54 @@ class SideGroup:
 
 
 @dataclass(frozen=True)
+class DimensionAlignment:
+    """How two differing dimension lists were reconciled for a joint comparison.
+
+    ``mode`` is ``"exact"`` when both sides declared identical dimensions and
+    ``"common"`` when the comparison fell back to the shared dimensions.  The
+    per-side counters keep the group-count effects of that fallback visible
+    instead of silently dropping them:
+
+    - ``*_collapsed_groups``: groups merged away by re-aggregation onto the
+      common dimensions (the refinement signal, e.g. region+channel → region).
+    - ``*_recovered_groups``: groups whose key arity differed from the declared
+      dimensions (e.g. rows missing a dimension value) but that still provided
+      every common-dimension value and were therefore kept.
+    - ``*_unmapped_groups``: groups missing at least one common-dimension
+      value; excluded from matching but still counted here.
+    """
+
+    mode: str
+    common_dimensions: tuple[str, ...]
+    base_extra_dimensions: tuple[str, ...] = ()
+    compare_extra_dimensions: tuple[str, ...] = ()
+    base_source_groups: int = 0
+    compare_source_groups: int = 0
+    base_collapsed_groups: int = 0
+    compare_collapsed_groups: int = 0
+    base_recovered_groups: int = 0
+    compare_recovered_groups: int = 0
+    base_unmapped_groups: int = 0
+    compare_unmapped_groups: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "common_dimensions": list(self.common_dimensions),
+            "base_extra_dimensions": list(self.base_extra_dimensions),
+            "compare_extra_dimensions": list(self.compare_extra_dimensions),
+            "base_source_groups": self.base_source_groups,
+            "compare_source_groups": self.compare_source_groups,
+            "base_collapsed_groups": self.base_collapsed_groups,
+            "compare_collapsed_groups": self.compare_collapsed_groups,
+            "base_recovered_groups": self.base_recovered_groups,
+            "compare_recovered_groups": self.compare_recovered_groups,
+            "base_unmapped_groups": self.base_unmapped_groups,
+            "compare_unmapped_groups": self.compare_unmapped_groups,
+        }
+
+
+@dataclass(frozen=True)
 class ComparisonResult:
     base_profile: str
     compare_profile: str
@@ -141,6 +189,7 @@ class ComparisonResult:
     matched: tuple[MatchedGroup, ...]
     only_base: tuple[SideGroup, ...]
     only_compare: tuple[SideGroup, ...]
+    alignment: DimensionAlignment | None = None
 
     @property
     def within_count(self) -> int:
@@ -151,13 +200,28 @@ class ComparisonResult:
         return sum(1 for item in self.matched if not item.within_tolerance)
 
     def summary(self) -> dict[str, int]:
-        return {
+        summary = {
             "matched_groups": len(self.matched),
             "within_tolerance_groups": self.within_count,
             "over_tolerance_groups": self.over_count,
             "only_base_groups": len(self.only_base),
             "only_compare_groups": len(self.only_compare),
         }
+        if self.alignment is not None:
+            alignment = self.alignment
+            summary.update(
+                {
+                    "base_source_groups": alignment.base_source_groups,
+                    "compare_source_groups": alignment.compare_source_groups,
+                    "base_collapsed_groups": alignment.base_collapsed_groups,
+                    "compare_collapsed_groups": alignment.compare_collapsed_groups,
+                    "base_recovered_groups": alignment.base_recovered_groups,
+                    "compare_recovered_groups": alignment.compare_recovered_groups,
+                    "base_unmapped_groups": alignment.base_unmapped_groups,
+                    "compare_unmapped_groups": alignment.compare_unmapped_groups,
+                }
+            )
+        return summary
 
     def to_dict(self) -> dict[str, Any]:
         matched = [
@@ -190,7 +254,7 @@ class ComparisonResult:
             }
             for item in self.only_compare
         ]
-        return {
+        payload = {
             "base_profile": self.base_profile,
             "compare_profile": self.compare_profile,
             "dimensions": list(self.dimensions),
@@ -203,6 +267,9 @@ class ComparisonResult:
             "only_base": only_base,
             "only_compare": only_compare,
         }
+        if self.alignment is not None:
+            payload["alignment"] = self.alignment.to_dict()
+        return payload
 
 
 @dataclass(frozen=True)
@@ -253,7 +320,7 @@ class TaskResult:
     suggestions: tuple[str, ...]
 
     def summary(self) -> dict[str, Any]:
-        return {
+        summary: dict[str, Any] = {
             "profile_count": len(self.profiles),
             "comparison_count": len(self.comparisons),
             "matched_groups": sum(len(item.matched) for item in self.comparisons),
@@ -264,6 +331,24 @@ class TaskResult:
             "attribution_clues": sum(len(item.clues) for item in self.attributions),
             "status": "completed",
         }
+        alignments = [
+            item.alignment for item in self.comparisons if item.alignment is not None
+        ]
+        if alignments:
+            summary["joint_comparisons"] = len(alignments)
+            summary["collapsed_groups"] = sum(
+                item.base_collapsed_groups + item.compare_collapsed_groups
+                for item in alignments
+            )
+            summary["recovered_groups"] = sum(
+                item.base_recovered_groups + item.compare_recovered_groups
+                for item in alignments
+            )
+            summary["unmapped_groups"] = sum(
+                item.base_unmapped_groups + item.compare_unmapped_groups
+                for item in alignments
+            )
+        return summary
 
     def to_dict(self) -> dict[str, Any]:
         return {

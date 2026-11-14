@@ -94,6 +94,154 @@ def test_dimension_mismatch_raises(calc_factory) -> None:
     assert caught.value.code == "dimension_mismatch"
 
 
+def test_joint_compares_on_common_dimensions(calc_factory) -> None:
+    base = calc_factory(
+        "a", {("华东",): 100, ("华北",): 200}, dimensions=("region",)
+    )
+    other = calc_factory(
+        "b",
+        {("华东", "web"): 60, ("华东", "app"): 40, ("华北", "web"): 200},
+        dimensions=("region", "channel"),
+    )
+    result = compare_calculations(base, other, joint=True)
+    assert result.dimensions == ("region",)
+    assert [item.key for item in result.matched] == [("华东",), ("华北",)]
+    east = result.matched[0]
+    assert east.base_value == 100
+    assert east.compare_value == 100
+    assert result.within_count == 2
+    assert result.only_base == ()
+    assert result.only_compare == ()
+    alignment = result.alignment
+    assert alignment is not None
+    assert alignment.mode == "common"
+    assert alignment.common_dimensions == ("region",)
+    assert alignment.base_extra_dimensions == ()
+    assert alignment.compare_extra_dimensions == ("channel",)
+    assert alignment.base_source_groups == 2
+    assert alignment.compare_source_groups == 3
+    assert alignment.base_collapsed_groups == 0
+    assert alignment.compare_collapsed_groups == 1
+    assert alignment.compare_recovered_groups == 0
+    assert alignment.compare_unmapped_groups == 0
+
+
+def test_joint_aligns_reordered_dimensions(calc_factory) -> None:
+    base = calc_factory(
+        "a", {("华东", "web"): 100}, dimensions=("region", "channel")
+    )
+    other = calc_factory(
+        "b", {("web", "华东"): 100}, dimensions=("channel", "region")
+    )
+    result = compare_calculations(base, other, joint=True)
+    assert result.dimensions == ("region", "channel")
+    assert len(result.matched) == 1
+    assert result.matched[0].within_tolerance is True
+    alignment = result.alignment
+    assert alignment is not None
+    assert alignment.mode == "common"
+    assert alignment.common_dimensions == ("region", "channel")
+    assert alignment.base_collapsed_groups == 0
+    assert alignment.compare_collapsed_groups == 0
+
+
+def test_joint_without_common_dimensions_still_raises(calc_factory) -> None:
+    base = calc_factory("a", {("华东",): 1}, dimensions=("region",))
+    other = calc_factory("b", {("web",): 1}, dimensions=("channel",))
+    with pytest.raises(ComparisonError) as caught:
+        compare_calculations(base, other, joint=True)
+    assert caught.value.code == "dimension_mismatch"
+
+
+def test_joint_recovers_rows_missing_dimension_values(calc_factory) -> None:
+    base = calc_factory(
+        "a", {("华东",): 100, ("华南",): 30}, dimensions=("region",)
+    )
+    other = calc_factory(
+        "b",
+        {("华东", "web", "s1"): 60, ("华东", "app", "s2"): 40, ("华南",): 30},
+        dimensions=("region", "channel", "sku"),
+    )
+    result = compare_calculations(base, other, joint=True)
+    assert result.within_count == 2
+    assert result.only_base == ()
+    assert result.only_compare == ()
+    alignment = result.alignment
+    assert alignment is not None
+    assert alignment.compare_source_groups == 3
+    assert alignment.compare_recovered_groups == 1
+    assert alignment.compare_unmapped_groups == 0
+    assert alignment.compare_collapsed_groups == 1
+    south = next(item for item in result.matched if item.key == ("华南",))
+    assert south.compare_value == 30
+
+
+def test_joint_counts_unmapped_groups(calc_factory) -> None:
+    base = calc_factory("a", {("web",): 100}, dimensions=("channel",))
+    other = calc_factory(
+        "b",
+        {("华东", "web"): 60, ("华南", "web"): 40, ("华北",): 10},
+        dimensions=("region", "channel"),
+    )
+    result = compare_calculations(base, other, joint=True)
+    assert len(result.matched) == 1
+    assert result.matched[0].key == ("web",)
+    assert result.matched[0].compare_value == 100
+    alignment = result.alignment
+    assert alignment is not None
+    assert alignment.compare_recovered_groups == 0
+    assert alignment.compare_unmapped_groups == 1
+    assert alignment.compare_collapsed_groups == 1
+
+
+def test_joint_with_identical_dimensions_marks_exact(calc_factory) -> None:
+    base = calc_factory("a", {("华东",): 100})
+    other = calc_factory("b", {("华东",): 100})
+    result = compare_calculations(base, other, joint=True)
+    alignment = result.alignment
+    assert alignment is not None
+    assert alignment.mode == "exact"
+    assert alignment.common_dimensions == ("region",)
+    assert alignment.base_source_groups == 1
+    assert alignment.compare_collapsed_groups == 0
+
+
+def test_joint_result_serializes_alignment(calc_factory) -> None:
+    base = calc_factory("a", {("华东",): 100}, dimensions=("region",))
+    other = calc_factory(
+        "b", {("华东", "web"): 100}, dimensions=("region", "channel")
+    )
+    result = compare_calculations(base, other, joint=True)
+    payload = result.to_dict()
+    alignment = payload["alignment"]
+    assert alignment["mode"] == "common"
+    assert alignment["common_dimensions"] == ["region"]
+    assert alignment["compare_extra_dimensions"] == ["channel"]
+    assert alignment["compare_source_groups"] == 1
+    assert alignment["compare_collapsed_groups"] == 0
+    summary = result.summary()
+    assert summary["matched_groups"] == 1
+    assert summary["compare_source_groups"] == 1
+    assert summary["compare_recovered_groups"] == 0
+    assert summary["compare_unmapped_groups"] == 0
+    assert payload["matched"][0]["label"] == "region=华东"
+
+
+def test_alignment_absent_without_joint(calc_factory) -> None:
+    base = calc_factory("a", {("华东",): 100})
+    other = calc_factory("b", {("华东",): 100})
+    result = compare_calculations(base, other)
+    assert result.alignment is None
+    assert "alignment" not in result.to_dict()
+    assert result.summary() == {
+        "matched_groups": 1,
+        "within_tolerance_groups": 1,
+        "over_tolerance_groups": 0,
+        "only_base_groups": 0,
+        "only_compare_groups": 0,
+    }
+
+
 def test_negative_tolerance_raises(calc_factory) -> None:
     base = calc_factory("a", {("华东",): 1})
     other = calc_factory("b", {("华东",): 1})
