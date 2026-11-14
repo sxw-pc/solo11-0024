@@ -9,10 +9,10 @@ from typing import Any, Iterable, Sequence
 
 import yaml
 
-from .expression import ExpressionError, validate_expression
-from .models import Profile
+from .expression import ExpressionError, parse_expression, validate_expression
+from .models import GRAIN_LEVELS, GRAIN_ORDER, Profile
 
-GRAINS = frozenset({"order", "user", "event"})
+GRAINS = frozenset(GRAIN_ORDER)
 REQUIRED_FIELDS = (
     "id",
     "name",
@@ -24,6 +24,9 @@ REQUIRED_FIELDS = (
     "exclusions",
     "notes",
 )
+# Optional controlled roll-up declarations; absent by default so that profiles
+# keep claiming their data already matches the declared grain.
+OPTIONAL_FIELDS = ("source_grain", "rollup_key")
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
@@ -116,6 +119,77 @@ def _validate_expression(
         raise _fail(path, field, f"表达式错误: {exc}") from exc
 
 
+def _optional_text(data: dict[str, Any], key: str, path: Path) -> str | None:
+    if key not in data or data[key] is None:
+        return None
+    value = data[key]
+    if not isinstance(value, str) or not value.strip():
+        raise _fail(path, key, "必须是非空字符串")
+    return value.strip()
+
+
+def _aggregate_names(node: Any) -> frozenset[str]:
+    names: set[str] = set()
+
+    def walk(current: Any) -> None:
+        if current.kind == "call":
+            names.add(current.value)
+        for child in current.children:
+            walk(child)
+
+    walk(node)
+    return frozenset(names)
+
+
+def _validate_rollup_declarations(
+    data: dict[str, Any],
+    grain: str,
+    metric_text: str,
+    columns: Sequence[str],
+    path: Path,
+) -> tuple[str | None, str | None]:
+    """Validate the optional ``source_grain`` / ``rollup_key`` pair.
+
+    A roll-up is only declared when ``source_grain`` is strictly finer than the
+    profile grain; in that case an entity ``rollup_key`` column is mandatory and
+    non-distributive aggregates (``avg``) are rejected up front because their
+    fine-grain results cannot be merged without extra state.
+    """
+    unknown = sorted(set(data) - set(REQUIRED_FIELDS) - set(OPTIONAL_FIELDS))
+    if unknown:
+        raise _fail(path, unknown[0], "未知字段")
+    source_grain = _optional_text(data, "source_grain", path)
+    rollup_key = _optional_text(data, "rollup_key", path)
+    if source_grain is not None and source_grain not in GRAINS:
+        raise _fail(
+            path, "source_grain", f"必须是 {', '.join(sorted(GRAINS))} 之一"
+        )
+    if source_grain is None:
+        if rollup_key is not None:
+            raise _fail(
+                path, "rollup_key", "声明 rollup_key 时必须同时声明更细的 source_grain"
+            )
+        return None, None
+    if GRAIN_LEVELS[source_grain] >= GRAIN_LEVELS[grain]:
+        raise _fail(
+            path,
+            "source_grain",
+            f"必须比声明粒度 {grain!r} 更细，实际为 {source_grain!r}",
+        )
+    if rollup_key is None:
+        raise _fail(path, "rollup_key", "受控上卷必须声明去重实体列 rollup_key")
+    if rollup_key not in columns:
+        raise _fail(path, "rollup_key", f"数据集中不存在列: {rollup_key}")
+    metric_node = parse_expression(metric_text)
+    if "avg" in _aggregate_names(metric_node):
+        raise _fail(
+            path,
+            "metric",
+            "avg 无法从更细粒度结果安全上卷，请改用可合并聚合或按目标粒度重算",
+        )
+    return source_grain, rollup_key
+
+
 def load_profile_file(path: Path, dataset_dir: Path) -> Profile:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -125,9 +199,6 @@ def load_profile_file(path: Path, dataset_dir: Path) -> Profile:
         raise _fail(path, "", f"无法读取文件: {exc}") from exc
     if not isinstance(raw, dict):
         raise _fail(path, "yaml", "顶层必须是映射")
-    unknown = sorted(set(raw) - set(REQUIRED_FIELDS))
-    if unknown:
-        raise _fail(path, unknown[0], "未知字段")
     for key in REQUIRED_FIELDS:
         if key not in raw:
             raise _fail(path, key, "缺少必需字段")
@@ -163,6 +234,9 @@ def load_profile_file(path: Path, dataset_dir: Path) -> Profile:
         allow_aggregates=True,
         require_aggregate=True,
     )
+    source_grain, rollup_key = _validate_rollup_declarations(
+        raw, grain, metric_text, columns, path
+    )
     return Profile(
         id=profile_id,
         name=name,
@@ -173,6 +247,8 @@ def load_profile_file(path: Path, dataset_dir: Path) -> Profile:
         dimensions=dimensions,
         exclusions=exclusions,
         notes=notes,
+        source_grain=source_grain,
+        rollup_key=rollup_key,
     )
 
 

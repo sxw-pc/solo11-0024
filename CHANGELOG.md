@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- 受控跨粒度上卷：profile 可声明 `source_grain`（实际数据粒度）与 `rollup_key`（去重实体列），在 filter → exclusions → 分组之后把更细粒度结果聚合到声明粒度。粒度链固定为 `event` < `order` < `user`。
+- 聚合代数区分可合并与不可合并函数：`sum` / `min` / `max` 在合并行集上重算，`count` 按实体键去重重算（同一用户多订单不翻倍），`avg` 因缺少分子分母状态在加载期拒绝。
+- `CalculationResult` 新增可选 `rollup` 轨迹（`source_grain` / `grain` / `rollup_key` / `unrollable_rows` / `rolled_up_rows`）；缺实体键的细粒度行计入 `unrollable_rows` 而非静默丢弃。
+- loader 对新字段做声明校验：粒度必须严格更细、`rollup_key` 必须存在、上卷指标不得含 `avg`、未知字段仍拒绝。
+- 未声明上卷的口径输出与 task_id 字节不变；新增 calculator / loader 上卷回归用例。
+
 ## 0.1.0 - 2026-11-13
 
 ### 项目定位

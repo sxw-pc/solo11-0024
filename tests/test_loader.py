@@ -28,9 +28,9 @@ def loader_env(tmp_path: Path):
     profile_dir.mkdir()
     dataset_dir.mkdir()
     (dataset_dir / "sample.csv").write_text(
-        "id,region,amount,status,channel\n"
-        "1,华东,100,paid,web\n"
-        "2,华北,200,paid,app\n",
+        "id,region,amount,status,channel,user_id\n"
+        "1,华东,100,paid,web,U1\n"
+        "2,华北,200,paid,app,U2\n",
         encoding="utf-8",
     )
 
@@ -178,3 +178,102 @@ def test_malformed_yaml(loader_env) -> None:
         load_profile_file(path, dataset_dir)
     assert caught.value.code == "invalid_profile"
     assert "yaml" in str(caught.value)
+
+
+ROLLUP_PROFILE = {
+    "id": "profile_rollup",
+    "name": "订单上卷用户口径",
+    "source": "sample.csv",
+    "grain": "user",
+    "filter": "status == 'paid'",
+    "metric": "count(id)",
+    "dimensions": ["region"],
+    "exclusions": [],
+    "notes": "声明数据实际为订单粒度，按 user_id 上卷。",
+    "source_grain": "order",
+    "rollup_key": "user_id",
+}
+
+
+def test_load_valid_rollup_profile(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    path = write_yaml("rollup.yaml", ROLLUP_PROFILE)
+    profile = load_profile_file(path, dataset_dir)
+    assert profile.grain == "user"
+    assert profile.source_grain == "order"
+    assert profile.rollup_key == "user_id"
+    payload = profile.to_dict()
+    assert payload["source_grain"] == "order"
+    assert payload["rollup_key"] == "user_id"
+
+
+def test_profile_without_rollup_omits_optional_fields(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    path = write_yaml("sample.yaml", PROFILE)
+    profile = load_profile_file(path, dataset_dir)
+    assert profile.source_grain is None
+    assert profile.rollup_key is None
+    assert "source_grain" not in profile.to_dict()
+    assert "rollup_key" not in profile.to_dict()
+
+
+def test_rollup_avg_metric_rejected(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    path = write_yaml("bad.yaml", dict(ROLLUP_PROFILE, metric="avg(amount)"))
+    with pytest.raises(ProfileError) as caught:
+        load_profile_file(path, dataset_dir)
+    assert "bad.yaml:metric" in str(caught.value)
+    assert "avg" in str(caught.value)
+
+
+def test_source_grain_not_finer_rejected(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    same_grain = dict(ROLLUP_PROFILE, source_grain="user")
+    path = write_yaml("bad.yaml", same_grain)
+    with pytest.raises(ProfileError) as caught:
+        load_profile_file(path, dataset_dir)
+    assert "bad.yaml:source_grain" in str(caught.value)
+
+
+def test_invalid_source_grain_value_rejected(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    path = write_yaml("bad.yaml", dict(ROLLUP_PROFILE, source_grain="session"))
+    with pytest.raises(ProfileError) as caught:
+        load_profile_file(path, dataset_dir)
+    assert "bad.yaml:source_grain" in str(caught.value)
+
+
+def test_rollup_key_required_for_rollup(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    data = dict(ROLLUP_PROFILE)
+    data.pop("rollup_key")
+    path = write_yaml("bad.yaml", data)
+    with pytest.raises(ProfileError) as caught:
+        load_profile_file(path, dataset_dir)
+    assert "bad.yaml:rollup_key" in str(caught.value)
+
+
+def test_rollup_key_without_source_grain_rejected(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    data = dict(PROFILE, rollup_key="user_id")
+    path = write_yaml("bad.yaml", data)
+    with pytest.raises(ProfileError) as caught:
+        load_profile_file(path, dataset_dir)
+    assert "bad.yaml:rollup_key" in str(caught.value)
+
+
+def test_rollup_key_must_exist_as_column(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    path = write_yaml("bad.yaml", dict(ROLLUP_PROFILE, rollup_key="missing_col"))
+    with pytest.raises(ProfileError) as caught:
+        load_profile_file(path, dataset_dir)
+    assert "bad.yaml:rollup_key" in str(caught.value)
+    assert "missing_col" in str(caught.value)
+
+
+def test_unknown_rollup_field_still_rejected(loader_env) -> None:
+    _, dataset_dir, write_yaml = loader_env
+    path = write_yaml("bad.yaml", dict(ROLLUP_PROFILE, grain_hint="order"))
+    with pytest.raises(ProfileError) as caught:
+        load_profile_file(path, dataset_dir)
+    assert "bad.yaml:grain_hint" in str(caught.value)

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping, Union
 
 Number = Union[int, float]
+
+# Finest to coarsest observation unit; roll-up goes from a lower to higher index.
+GRAIN_ORDER: tuple[str, ...] = ("event", "order", "user")
+GRAIN_LEVELS: Mapping[str, int] = {grain: i for i, grain in enumerate(GRAIN_ORDER)}
 
 
 def normalize_number(value: Number) -> Number:
@@ -28,6 +32,10 @@ def group_label(dimensions: Iterable[str], key: Iterable[str]) -> str:
     return "; ".join(parts) if parts else "(总计)"
 
 
+def _group_payload(dimensions: Iterable[str], key: Iterable[str], value: Any) -> dict[str, Any]:
+    return {"key": list(key), "label": group_label(dimensions, key), "value": value}
+
+
 @dataclass(frozen=True)
 class Profile:
     id: str
@@ -39,19 +47,21 @@ class Profile:
     dimensions: tuple[str, ...]
     exclusions: tuple[str, ...]
     notes: str = ""
+    source_grain: str | None = None
+    rollup_key: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "source": self.source,
-            "grain": self.grain,
-            "filter": self.filter,
-            "metric": self.metric,
+        payload = {
+            "id": self.id, "name": self.name, "source": self.source,
+            "grain": self.grain, "filter": self.filter, "metric": self.metric,
             "dimensions": list(self.dimensions),
-            "exclusions": list(self.exclusions),
-            "notes": self.notes,
+            "exclusions": list(self.exclusions), "notes": self.notes,
         }
+        if self.source_grain is not None:  # appended only when set (byte stability)
+            payload["source_grain"] = self.source_grain
+        if self.rollup_key is not None:
+            payload["rollup_key"] = self.rollup_key
+        return payload
 
 
 @dataclass(frozen=True)
@@ -81,6 +91,20 @@ class GroupValue:
 
 
 @dataclass(frozen=True)
+class RollupTrace:
+    """Fine->coarse roll-up audit; rows missing an entity key count as unrollable."""
+
+    source_grain: str
+    grain: str
+    rollup_key: str
+    unrollable_rows: int
+    rolled_up_rows: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class CalculationResult:
     profile_id: str
     profile_name: str
@@ -88,26 +112,25 @@ class CalculationResult:
     dimensions: tuple[str, ...]
     stats: CalcStats
     groups: tuple[GroupValue, ...]
+    rollup: RollupTrace | None = None
 
     def group_map(self) -> dict[tuple[str, ...], Number]:
         return {group.key: group.value for group in self.groups}
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "profile_id": self.profile_id,
             "profile_name": self.profile_name,
             "grain": self.grain,
             "dimensions": list(self.dimensions),
             "stats": self.stats.to_dict(),
             "groups": [
-                {
-                    "key": list(group.key),
-                    "label": group_label(self.dimensions, group.key),
-                    "value": group.value,
-                }
-                for group in self.groups
+                _group_payload(self.dimensions, g.key, g.value) for g in self.groups
             ],
         }
+        if self.rollup is not None:  # appended only when rolled up (byte order)
+            payload["rollup"] = self.rollup.to_dict()
+        return payload
 
 
 @dataclass(frozen=True)
@@ -175,19 +198,11 @@ class ComparisonResult:
             for item in self.matched
         ]
         only_base = [
-            {
-                "key": list(item.key),
-                "label": group_label(self.dimensions, item.key),
-                "value": item.value,
-            }
+            _group_payload(self.dimensions, item.key, item.value)
             for item in self.only_base
         ]
         only_compare = [
-            {
-                "key": list(item.key),
-                "label": group_label(self.dimensions, item.key),
-                "value": item.value,
-            }
+            _group_payload(self.dimensions, item.key, item.value)
             for item in self.only_compare
         ]
         return {

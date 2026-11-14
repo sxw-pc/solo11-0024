@@ -134,6 +134,8 @@ curl -s http://127.0.0.1:5000/run \
 | `name` | string | 人类可读名称 |
 | `source` | string | `fixtures/datasets` 下的 CSV 文件名，不含路径 |
 | `grain` | enum | `order` / `user` / `event`，声明数据观察粒度 |
+| `source_grain` | string，可选 | 源数据实际粒度；仅当比 `grain` 更细（`event` < `order` < `user`）时允许，触发一次受控上卷 |
+| `rollup_key` | string，可选 | 上卷去重实体列（如 `user_id`）；声明 `source_grain` 时必填，且必须是数据集中存在的列 |
 | `filter` | string | 行级过滤表达式，必须返回布尔值，不能含聚合函数 |
 | `metric` | string | 聚合指标表达式，必须至少包含一个聚合函数 |
 | `dimensions` | list[string] | 非空分组维度列名；比对双方必须完全一致 |
@@ -146,7 +148,7 @@ curl -s http://127.0.0.1:5000/run \
 profile_sales_a.yaml:metric: 表达式错误: unexpected_token: ...
 ```
 
-`grain` 是数据观察单元声明，参与口径归因；输出分组键由 `dimensions` 决定。源数据应已经处于声明粒度，本工具不做跨粒度上卷。
+`grain` 是数据观察单元声明，参与口径归因；输出分组键由 `dimensions` 决定。默认情况下源数据应已处于声明粒度；当源数据实际更细时，可通过 `source_grain` + `rollup_key` 声明受控上卷（见 3.2 节），其余情形不做隐式跨粒度上卷。
 
 完整示例（`fixtures/profiles/profile_sales_a.yaml`）：
 
@@ -183,6 +185,25 @@ notes: "仅统计已支付订单，排除测试渠道；分组维度为区域，
 - `rows_aggregated`：成功进入输出分组的行数。
 - `groups`：成功聚合的分组数。
 - `unparsable_rows`：filter / exclusion / 维度 / 指标求值失败的行数；某组指标聚合失败时，该组行数计入此项。
+
+### 3.2 受控跨粒度上卷
+
+当一份订单级 CSV 需要产出用户粒度口径时，直接把订单粒度的 `count` 结果按组相加会把同一用户的多张订单重复计数。此时在 YAML 中声明：
+
+```yaml
+grain: user
+source_grain: order
+rollup_key: user_id
+metric: "count(order_id)"
+```
+
+粒度链固定为 `event` < `order` < `user`，只有 `source_grain` 严格细于 `grain` 时才允许上卷，且 `rollup_key` 必须指向数据集中真实存在的实体列。上卷在既有「filter → exclusions → 分组」流水线**之后**执行，不改变原执行顺序：
+
+- `sum` / `min` / `max` 是可合并聚合，在合并后的细粒度行集合上重新求值，结果与按行重算一致。
+- `count`（含 `count()` 与 `count(expr)`）按 `rollup_key` 去重后重算，避免同一实体被多次计数。
+- `avg` 无法只凭细粒度结果安全合并（缺少分子分母状态），加载期直接以结构化错误拒绝；请改用可合并聚合，或改用目标粒度数据源。
+- 实体列缺失或键值为空串/空白的细粒度行**不会被静默丢弃**，而是计入计算结果 `rollup.unrollable_rows`；整组都没有可用键时该组不产生输出。
+- 未声明 `source_grain` 的口径行为与输出字节完全不变；声明上卷时，计算结果末尾追加 `rollup` 轨迹（`source_grain` / `grain` / `rollup_key` / `unrollable_rows` / `rolled_up_rows`）。
 
 ## 4. 表达式语法
 
@@ -362,7 +383,7 @@ Markdown 片段：
 - 不实现数据上传、任意路径读取、远程 URL 抓取。
 - 不实现与 Excel 的双向导入导出。
 - 不实现调度器、分布式执行、并发任务编排。
-- 不实现跨粒度上卷；`grain` 仅作为声明与归因依据。
+- 不做隐式跨粒度上卷；仅在显式声明 `source_grain` + `rollup_key` 时执行受控上卷（见 3.2），`grain` 本身仍是声明与归因字段。
 - 不实现报告 HTML 页面；Markdown 与 JSON 是正式产物。
 
 以上清单与实际代码一致：仓库没有数据库驱动、网络客户端、图表库、上传路由或调度组件。
